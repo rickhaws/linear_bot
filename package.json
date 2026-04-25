@@ -1,0 +1,30 @@
+{
+  "name": "linear_bot",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rickhaws/linear_bot.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/rickhaws/linear_bot/issues"
+  },
+  "homepage": "https://github.com/rickhaws/linear_bot#readme",
+  "type": "module",
+  "dependencies": {
+    "ccxt": "^4.5.48",
+    "dotenv": "^17.4.2"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
+  }
+}
