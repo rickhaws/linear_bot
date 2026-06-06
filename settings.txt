@@ -6,13 +6,19 @@
 # At or above HIGH price: 100% USDC (sell all BTC)
 # At or below LOW price: 100% BTC (sell all USDC)
 # Between: linear interpolation
-HIGH=100000
-LOW=60000
+HIGH=85000
+LOW=65000
 
-# Minimum USD difference to trigger a trade
+# Minimum percentage difference to trigger a trade
 # Should be set higher than expected trading fees (Kraken taker: ~0.26%)
 # For $50-100 trades, fees are ~$0.13-0.26, so set to 0.50 or higher
-THRESHOLD=0.50
+THRESHOLD_PERCENTAGE=3
+
+# Minimum USD difference to trigger a trade
+# This will be calculated as a percentage of the portfolio value
+# Should be set higher than expected trading fees (Kraken taker: ~0.26%)
+# For $50-100 trades, fees are ~$0.13-0.26, so set to $10 or higher
+MIN_TRADE_SIZE=10
 
 # If true, bot logs what it WOULD do without executing trades
 # If false, bot executes real trades
