@@ -18,6 +18,7 @@ function loadSettings() {
     HIGH: 100000,
     LOW: 60000,
     THRESHOLD_PERCENTAGE: 1.5,
+    SYMBOL: 'BTC/USDC',
     DRY_RUN: true,
   };
 
@@ -37,6 +38,7 @@ function loadSettings() {
     if (key === 'HIGH') settings.HIGH = parseFloat(value);
     if (key === 'LOW') settings.LOW = parseFloat(value);
     if (key === 'THRESHOLD_PERCENTAGE') settings.THRESHOLD_PERCENTAGE = parseFloat(value);
+    if (key === 'SYMBOL') settings.SYMBOL = value;
     if (key === 'DRY_RUN') settings.DRY_RUN = value.toLowerCase() === 'true';
   });
 
@@ -71,15 +73,16 @@ function calculateTargetAllocation(price, LOW, HIGH) {
 }
 
 // Fetch current balance with error handling
-async function fetchBalance(exchange, maxRetries = 3) {
+async function fetchBalance(exchange, symbol, maxRetries = 3) {
   let lastError = null;
+  const [base, quote] = symbol.split('/');
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const balance = await exchange.fetch_balance();
       return {
-        btc: balance.BTC?.free || 0,
-        usdc: balance.USDC?.free || 0,
+        base: balance[base]?.free || 0,
+        quote: balance[quote]?.free || 0,
       };
     } catch (error) {
       lastError = error;
@@ -95,12 +98,12 @@ async function fetchBalance(exchange, maxRetries = 3) {
 }
 
 // Fetch mid price (average of bid/ask) with error handling
-async function fetchMidPrice(exchange, maxRetries = 3) {
+async function fetchMidPrice(exchange, symbol, maxRetries = 3) {
   let lastError = null;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const ticker = await exchange.fetch_ticker('BTC/USDC');
+      const ticker = await exchange.fetch_ticker(symbol);
       return (ticker.bid + ticker.ask) / 2;
     } catch (error) {
       lastError = error;
@@ -116,10 +119,10 @@ async function fetchMidPrice(exchange, maxRetries = 3) {
 }
 
 // Calculate volatility-based multiplier using 24h ATR (Average True Range)
-async function getVolatilityAdjustment(exchange) {
+async function getVolatilityAdjustment(exchange, symbol) {
   try {
     // Fetch 24 hourly candles
-    const ohlcv = await exchange.fetch_ohlcv('BTC/USDC', '1h', undefined, 24);
+    const ohlcv = await exchange.fetch_ohlcv(symbol, '1h', undefined, 24);
     if (ohlcv.length < 24) return 1.0;
 
     // Calculate the percentage range (High - Low) / Open for each hour
@@ -158,7 +161,7 @@ function logTransaction(log) {
     logEntry = `${log.timestamp} | ${statusStr} | ${log.action} | Price: $${log.price.toFixed(2)}${reasonStr}\n`;
   }
   else {
-    logEntry = `${log.timestamp} | ${statusStr} | ${log.action} | Price: $${log.price.toFixed(2)} | Amount: ${log.btcAmount} BTC | Total: $${log.totalUSD.toFixed(2)}\n`;
+    logEntry = `${log.timestamp} | ${statusStr} | ${log.action} | Price: $${log.price.toFixed(2)} | Amount: ${log.btcAmount} | Total: $${log.totalUSD.toFixed(2)}\n`;
   }
 
   try {
@@ -172,8 +175,9 @@ function logTransaction(log) {
 async function main() {
   try {
     const settings = loadSettings();
-    console.log('=== BTC/USDC Rebalancing Bot ===');
-    console.log(`Settings: HIGH=$${settings.HIGH}, LOW=$${settings.LOW}, THRESHOLD_PERCENTAGE=${settings.THRESHOLD_PERCENTAGE}%, DRY_RUN=${settings.DRY_RUN}\n`);
+    const [baseAsset, quoteAsset] = settings.SYMBOL.split('/');
+    console.log(`=== Linear Rebalancing Bot ===`);
+    console.log(`Settings: SYMBOL=${settings.SYMBOL}, HIGH=$${settings.HIGH}, LOW=$${settings.LOW}, THRESHOLD_PERCENTAGE=${settings.THRESHOLD_PERCENTAGE}%, DRY_RUN=${settings.DRY_RUN}\n`);
 
     // Initialize exchange
     let exchange;
@@ -185,11 +189,11 @@ async function main() {
     }
 
     // Fetch current data with retries
-    const balance = await fetchBalance(exchange);
-    const midPrice = await fetchMidPrice(exchange);
+    const balance = await fetchBalance(exchange, settings.SYMBOL);
+    const midPrice = await fetchMidPrice(exchange, settings.SYMBOL);
 
     // Apply Volatility Adaptor
-    const volMultiplier = await getVolatilityAdjustment(exchange);
+    const volMultiplier = await getVolatilityAdjustment(exchange, settings.SYMBOL);
     const adjustedThresholdPercent = settings.THRESHOLD_PERCENTAGE * volMultiplier;
     console.log(`Volatility Adjustment: ${volMultiplier.toFixed(2)}x`);
     console.log(`Dynamic Threshold: ${adjustedThresholdPercent.toFixed(2)}%\n`);
@@ -204,29 +208,29 @@ async function main() {
       status: 'skipped',
     };
 
-    console.log(`Current BTC Balance: ${balance.btc.toFixed(8)}`);
-    console.log(`Current USDC Balance: $${balance.usdc.toFixed(2)}`);
+    console.log(`Current ${baseAsset} Balance: ${balance.base.toFixed(8)}`);
+    console.log(`Current ${quoteAsset} Balance: $${balance.quote.toFixed(2)}`);
     console.log(`Current Mid Price: $${midPrice.toFixed(2)}\n`);
 
     // Calculate portfolio value
-    const portfolioValueUSD = balance.btc * midPrice + balance.usdc;
+    const portfolioValueUSD = balance.base * midPrice + balance.quote;
     console.log(`Portfolio Value: $${portfolioValueUSD.toFixed(2)}`);
 
     // Calculate target allocation based on current price
-    const initialBTCPercentage = balance.btc * midPrice / portfolioValueUSD;
+    const initialBTCPercentage = balance.base * midPrice / portfolioValueUSD;
     const targetUSDCPercentage = calculateTargetAllocation(midPrice, settings.LOW, settings.HIGH);
     const targetBTCPercentage = 1 - targetUSDCPercentage;
 
-    console.log(`Initial Allocation: ${(initialBTCPercentage * 100).toFixed(1)}% BTC`);
-    console.log(`Target Allocation:  ${(targetBTCPercentage * 100).toFixed(1)}% BTC\n`);
+    console.log(`Initial Allocation: ${(initialBTCPercentage * 100).toFixed(1)}% ${baseAsset}`);
+    console.log(`Target Allocation:  ${(targetBTCPercentage * 100).toFixed(1)}% ${baseAsset}\n`);
 
     // Calculate required rebalancing
     const targetUSDCValue = portfolioValueUSD * targetUSDCPercentage;
-    const currentUSDCValue = balance.usdc;
+    const currentUSDCValue = balance.quote;
     const usdDifference = targetUSDCValue - currentUSDCValue;
 
-    console.log(`Current USDC Value: $${currentUSDCValue.toFixed(2)}`);
-    console.log(`Target USDC Value:  $${targetUSDCValue.toFixed(2)}`);
+    console.log(`Current ${quoteAsset} Value: $${currentUSDCValue.toFixed(2)}`);
+    console.log(`Target ${quoteAsset} Value:  $${targetUSDCValue.toFixed(2)}`);
     console.log(`USD Difference: $${usdDifference.toFixed(2)}`);
 
     // Check if rebalancing is needed
@@ -243,13 +247,13 @@ async function main() {
     // Get market information and limits
     let market;
     try {
-      market = exchange.market('BTC/USDC');
+      market = exchange.market(settings.SYMBOL);
     } catch (error) {
-      throw new Error(`Failed to fetch market info for BTC/USDC: ${error}`);
+      throw new Error(`Failed to fetch market info for ${settings.SYMBOL}: ${error}`);
     }
 
     const minBTCAmount = market.limits.amount.min || 0.001;
-    console.log(`\nMinimum BTC order size on Kraken: ${minBTCAmount} BTC`);
+    console.log(`\nMinimum ${baseAsset} order size on Kraken: ${minBTCAmount} ${baseAsset}`);
 
     // Determine trade type and amount
     let action;
@@ -260,15 +264,15 @@ async function main() {
       // Need more USDC: sell BTC
       tradeAmountBTC = Math.abs(usdDifference) / midPrice;
       tradeAmountUSD = tradeAmountBTC * midPrice;
-      action = 'SELL_BTC';
+      action = `SELL_${baseAsset}`;
     } else {
       // Need more BTC: buy BTC (sell USDC)
       tradeAmountBTC = Math.abs(usdDifference) / midPrice;
       tradeAmountUSD = Math.abs(usdDifference);
-      action = 'BUY_BTC';
+      action = `BUY_${baseAsset}`;
     }
 
-    console.log(`\nCalculated trade: ${action} ${tradeAmountBTC.toFixed(8)} BTC (~$${tradeAmountUSD.toFixed(2)})`);
+    console.log(`\nCalculated trade: ${action} ${tradeAmountBTC.toFixed(8)} ${baseAsset} (~$${tradeAmountUSD.toFixed(2)})`);
 
     // Update log data for the calculated trade
     logData.action = action;
@@ -278,16 +282,16 @@ async function main() {
     // Check minimum amount
     if (tradeAmountBTC < minBTCAmount) {
       console.log(
-        `Trade amount ${tradeAmountBTC.toFixed(8)} BTC is below minimum ${minBTCAmount}. No action taken.\n`
+        `Trade amount ${tradeAmountBTC.toFixed(8)} ${baseAsset} is below minimum ${minBTCAmount}. No action taken.\n`
       );
-      logTransaction({ ...logData, reason: `Amount below minimum (${minBTCAmount} BTC)` });
+      logTransaction({ ...logData, reason: `Amount below minimum (${minBTCAmount} ${baseAsset})` });
       return;
     }
 
     // Apply precision to avoid formatting errors
     let precisionBTC;
     try {
-      precisionBTC = exchange.amountToPrecision('BTC/USDC', tradeAmountBTC);
+      precisionBTC = exchange.amountToPrecision(settings.SYMBOL, tradeAmountBTC);
     } catch (error) {
       throw new Error(`Failed to apply precision: ${error}`);
     }
@@ -299,18 +303,18 @@ async function main() {
     logData.totalUSD = roundedUSD;
 
     if (settings.DRY_RUN) {
-      console.log(`[DRY RUN] Would execute: ${action} ${precisionBTC} BTC (~$${roundedUSD})\n`);
+      console.log(`[DRY RUN] Would execute: ${action} ${precisionBTC} ${baseAsset} (~$${roundedUSD})\n`);
       logTransaction({ ...logData, status: 'dryrun' });
     } else {
-      console.log(`Executing live trade: ${action} ${precisionBTC} BTC (~$${roundedUSD})\n`);
+      console.log(`Executing live trade: ${action} ${precisionBTC} ${baseAsset} (~$${roundedUSD})\n`);
 
       try {
         let orderId;
-        if (action === 'SELL_BTC') {
-          const order = await exchange.create_market_sell_order('BTC/USDC', parseFloat(precisionBTC));
+        if (action.startsWith('SELL')) {
+          const order = await exchange.create_market_sell_order(settings.SYMBOL, parseFloat(precisionBTC));
           orderId = order.id;
         } else {
-          const order = await exchange.create_market_buy_order('BTC/USDC', parseFloat(precisionBTC));
+          const order = await exchange.create_market_buy_order(settings.SYMBOL, parseFloat(precisionBTC));
           orderId = order.id;
         }
 

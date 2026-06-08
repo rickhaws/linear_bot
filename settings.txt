@@ -1,10 +1,13 @@
-# BTC/USDC Rebalancing Bot Settings
+# Linear Rebalancing Bot Settings
 # Format: KEY=VALUE
 # Lines starting with # are ignored
 
+# The trading pair to use (e.g., BTC/USDC, ETH/USDC)
+SYMBOL=BTC/USDC
+
 # Price range for rebalancing
-# At or above HIGH price: 100% USDC (sell all BTC)
-# At or below LOW price: 100% BTC (sell all USDC)
+# At or above HIGH price: 100% Quote Asset (sell all Base Asset)
+# At or below LOW price: 100% Base Asset (sell all Quote Asset)
 # Between: linear interpolation
 HIGH=85000
 LOW=65000
@@ -14,10 +17,10 @@ LOW=65000
 # For $50-100 trades, fees are ~$0.13-0.26, so set to 0.50 or higher
 THRESHOLD_PERCENTAGE=3
 
-# Minimum USD difference to trigger a trade
+# Minimum Quote Asset difference to trigger a trade
 # This will be calculated as a percentage of the portfolio value
 # Should be set higher than expected trading fees (Kraken taker: ~0.26%)
-# For $50-100 trades, fees are ~$0.13-0.26, so set to $10 or higher
+# For 50-100 value trades, fees are ~0.13-0.26, so set to 10 or higher
 MIN_TRADE_SIZE=10
 
 # If true, bot logs what it WOULD do without executing trades
