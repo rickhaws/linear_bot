@@ -9,8 +9,8 @@ SYMBOL=BTC/USDC
 # At or above HIGH price: 100% Quote Asset (sell all Base Asset)
 # At or below LOW price: 100% Base Asset (sell all Quote Asset)
 # Between: linear interpolation
-HIGH=85000
-LOW=65000
+HIGH=68000
+LOW=58000
 
 # Minimum percentage difference to trigger a trade
 # Should be set higher than expected trading fees (Kraken taker: ~0.26%)

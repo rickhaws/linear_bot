@@ -190,7 +190,7 @@ async function main() {
 
     // Fetch current data with retries
     const balance = await fetchBalance(exchange, settings.SYMBOL);
-    const midPrice = await fetchMidPrice(exchange, settings.SYMBOL);
+    const currentPrice = await fetchMidPrice(exchange, settings.SYMBOL);
 
     // Apply Volatility Adaptor
     const volMultiplier = await getVolatilityAdjustment(exchange, settings.SYMBOL);
@@ -201,24 +201,25 @@ async function main() {
     // Initialize base log object with common values
     const logData = {
       timestamp: new Date().toLocaleString(),
-      price: midPrice,
+      price: currentPrice,
       action: 'CHECK_ONLY',
       btcAmount: '0',
       totalUSD: 0,
       status: 'skipped',
     };
 
+    const portfolioValueUSD = balance.base * currentPrice + balance.quote;
+    const midRangePrice = (settings.HIGH + settings.LOW) / 2;
+    const valueAtMidRange = balance.base * midRangePrice + balance.quote;
+    console.log(`Portfolio Value: $${portfolioValueUSD.toFixed(2)}`);
+    console.log(`Value at mid-range price: $${valueAtMidRange.toFixed(2)} at $${midRangePrice} USD/BTC`);
     console.log(`Current ${baseAsset} Balance: ${balance.base.toFixed(8)}`);
     console.log(`Current ${quoteAsset} Balance: $${balance.quote.toFixed(2)}`);
-    console.log(`Current Mid Price: $${midPrice.toFixed(2)}\n`);
-
-    // Calculate portfolio value
-    const portfolioValueUSD = balance.base * midPrice + balance.quote;
-    console.log(`Portfolio Value: $${portfolioValueUSD.toFixed(2)}`);
+    console.log(`Current Price: $${currentPrice.toFixed(2)}\n`);
 
     // Calculate target allocation based on current price
-    const initialBTCPercentage = balance.base * midPrice / portfolioValueUSD;
-    const targetUSDCPercentage = calculateTargetAllocation(midPrice, settings.LOW, settings.HIGH);
+    const initialBTCPercentage = balance.base * currentPrice / portfolioValueUSD;
+    const targetUSDCPercentage = calculateTargetAllocation(currentPrice, settings.LOW, settings.HIGH);
     const targetBTCPercentage = 1 - targetUSDCPercentage;
 
     console.log(`Initial Allocation: ${(initialBTCPercentage * 100).toFixed(1)}% ${baseAsset}`);
@@ -262,12 +263,12 @@ async function main() {
 
     if (usdDifference > 0) {
       // Need more USDC: sell BTC
-      tradeAmountBTC = Math.abs(usdDifference) / midPrice;
-      tradeAmountUSD = tradeAmountBTC * midPrice;
+      tradeAmountBTC = Math.abs(usdDifference) / currentPrice;
+      tradeAmountUSD = tradeAmountBTC * currentPrice;
       action = `SELL_${baseAsset}`;
     } else {
       // Need more BTC: buy BTC (sell USDC)
-      tradeAmountBTC = Math.abs(usdDifference) / midPrice;
+      tradeAmountBTC = Math.abs(usdDifference) / currentPrice;
       tradeAmountUSD = Math.abs(usdDifference);
       action = `BUY_${baseAsset}`;
     }
