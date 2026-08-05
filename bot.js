@@ -297,17 +297,15 @@ async function main() {
       throw new Error(`Failed to apply precision: ${error}`);
     }
 
-    const roundedUSD = roundTradeAmount(tradeAmountUSD);
-
     // Update log with finalized precision and rounded values
     logData.btcAmount = precisionBTC;
-    logData.totalUSD = roundedUSD;
+    logData.totalUSD = tradeAmountUSD;
 
     if (settings.DRY_RUN) {
-      console.log(`[DRY RUN] Would execute: ${action} ${precisionBTC} ${baseAsset} (~$${roundedUSD})\n`);
+      console.log(`[DRY RUN] Would execute: ${action} ${precisionBTC} ${baseAsset} (~$${tradeAmountUSD})\n`);
       logTransaction({ ...logData, status: 'dryrun' });
     } else {
-      console.log(`Executing live trade: ${action} ${precisionBTC} ${baseAsset} (~$${roundedUSD})\n`);
+      console.log(`Executing live trade: ${action} ${precisionBTC} ${baseAsset} (~$${tradeAmountUSD})\n`);
 
       try {
         let orderId;
