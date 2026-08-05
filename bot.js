@@ -40,6 +40,7 @@ function loadSettings() {
     if (key === 'THRESHOLD_PERCENTAGE') settings.THRESHOLD_PERCENTAGE = parseFloat(value);
     if (key === 'SYMBOL') settings.SYMBOL = value;
     if (key === 'DRY_RUN') settings.DRY_RUN = value.toLowerCase() === 'true';
+    if (key === 'MIN_TRADE_SIZE') settings.MIN_TRADE_SIZE = parseFloat(value);
   });
 
   return settings;
@@ -289,6 +290,13 @@ async function main() {
       return;
     }
 
+    const minTradeUSD = settings.MIN_TRADE_SIZE || 10;
+    if (tradeAmountUSD < minTradeUSD) {
+      console.log(`Trade amount $${tradeAmountUSD.toFixed(2)} is below MIN_TRADE_SIZE ($${minTradeUSD}). Skipping.`);
+      logTransaction({ ...logData, reason: `Amount below MIN_TRADE_SIZE ($${minTradeUSD})` });
+      return;
+    }
+    
     // Apply precision to avoid formatting errors
     let precisionBTC;
     try {

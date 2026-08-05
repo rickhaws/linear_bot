@@ -15,7 +15,7 @@ LOW=58000
 # Minimum percentage difference to trigger a trade
 # Should be set higher than expected trading fees (Kraken taker: ~0.26%)
 # For $50-100 trades, fees are ~$0.13-0.26, so set to 0.50 or higher
-THRESHOLD_PERCENTAGE=3
+THRESHOLD_PERCENTAGE=1.5
 
 # Minimum Quote Asset difference to trigger a trade
 # This will be calculated as a percentage of the portfolio value
