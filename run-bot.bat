@@ -11,10 +11,10 @@ REM Log file path
 set LOGFILE=%~dp0bot_output.log
 
 REM Full path to Node.js
-set NODE_PATH=C:\nvm4w\nodejs\node.exe
+set "NODE_PATH=C:\Program Files\nodejs\node.exe"
 
 REM Full path to npx (npm package runner)
-set NPX_PATH=C:\nvm4w\nodejs\npx.cmd
+set "NPX_PATH=C:\Program Files\nodejs\npx.cmd"
 
 REM Verify node exists
 if not exist "%NODE_PATH%" (
