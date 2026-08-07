@@ -154,12 +154,10 @@ function logTransaction(log) {
   const statusStr = log.status === 'dryrun' ? '[DRY_RUN]' : log.status === 'skipped' ? '[SKIPPED]' : '[EXECUTED]';
   let logEntry = '';
   
-  if (log.status === 'skipped' || log.status === 'dryrun') {
-    logEntry = `${log.timestamp} | ${statusStr} | ${log.action} | Price: $${log.price.toFixed(2)} | Reason: ${log.reason}\n`;
+  if (log.status === 'skipped') {
     const reasonStr = log.reason ? ` | Reason: ${log.reason}` : '';
     logEntry = `${log.timestamp} | ${statusStr} | ${log.action} | Price: $${log.price.toFixed(2)}${reasonStr}\n`;
-  }
-  else {
+  }  else {
     logEntry = `${log.timestamp} | ${statusStr} | ${log.action} | Price: $${log.price.toFixed(2)} | Amount: ${log.btcAmount} | Total: $${log.totalUSD.toFixed(2)}\n`;
   }
 
@@ -186,6 +184,9 @@ async function main() {
     } catch (error) {
       throw new Error(`Failed to initialize Kraken connection: ${error}`);
     }
+
+        // Load market cache so exchange.market() works
+    await exchange.loadMarkets();
 
     // Fetch current data with retries
     const balance = await fetchBalance(exchange, settings.SYMBOL);
