@@ -89,7 +89,6 @@ async function fetchBalance(exchange, symbol, maxRetries = 3) {
       lastError = error;
       console.warn(`Fetch balance attempt ${attempt}/${maxRetries} failed: ${error.message}`);
       if (attempt < maxRetries) {
-        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
         await sleep(1000 * attempt);
       }
     }
@@ -110,7 +109,6 @@ async function fetchMidPrice(exchange, symbol, maxRetries = 3) {
       lastError = error;
       console.warn(`Fetch price attempt ${attempt}/${maxRetries} failed: ${error.message}`);
       if (attempt < maxRetries) {
-        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
         await sleep(1000 * attempt);
       }
     }
@@ -317,11 +315,19 @@ async function main() {
 
       try {
         let orderId;
+        const ticker = await exchange.fetch_ticker(settings.SYMBOL);
+        
         if (action.startsWith('SELL')) {
-          const order = await exchange.create_market_sell_order(settings.SYMBOL, parseFloat(precisionBTC));
+          // Place limit sell slightly below current bid to ensure instant fill
+          const rawLimitPrice = ticker.bid * 0.999;
+          const limitPrice = exchange.priceToPrecision(settings.SYMBOL, rawLimitPrice);
+          const order = await exchange.createOrder(settings.SYMBOL, 'limit', 'sell', parseFloat(precisionBTC), parseFloat(limitPrice));
           orderId = order.id;
         } else {
-          const order = await exchange.create_market_buy_order(settings.SYMBOL, parseFloat(precisionBTC));
+          // Place limit buy slightly above current ask to ensure instant fill
+          const rawLimitPrice = ticker.ask * 1.001;
+          const limitPrice = exchange.priceToPrecision(settings.SYMBOL, rawLimitPrice);
+          const order = await exchange.createOrder(settings.SYMBOL, 'limit', 'buy', parseFloat(precisionBTC), parseFloat(limitPrice));
           orderId = order.id;
         }
 
