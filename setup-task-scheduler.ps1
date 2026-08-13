@@ -40,7 +40,7 @@ Write-Host "First run scheduled for: $($startTime.ToString('yyyy-MM-dd HH:mm:ss'
 $trigger = New-ScheduledTaskTrigger `
     -Once `
     -At $startTime `
-    -RepetitionInterval (New-TimeSpan -Hours 1)
+    -RepetitionInterval (New-TimeSpan -Hours 12)
 
 # Settings for reliability
 $settings = New-ScheduledTaskSettingsSet `

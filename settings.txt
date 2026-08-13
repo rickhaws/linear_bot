@@ -9,13 +9,14 @@ SYMBOL=BTC/USDC
 # At or above HIGH price: 100% Quote Asset (sell all Base Asset)
 # At or below LOW price: 100% Base Asset (sell all Quote Asset)
 # Between: linear interpolation
-HIGH=68000
-LOW=58000
+# $85,000 total range width (e.g., centered near current market ~$95k)
+HIGH=130000
+LOW=45000
 
 # Minimum percentage difference to trigger a trade
 # Should be set higher than expected trading fees (Kraken taker: ~0.26%)
 # For $50-100 trades, fees are ~$0.13-0.26, so set to 0.50 or higher
-THRESHOLD_PERCENTAGE=1.5
+THRESHOLD_PERCENTAGE=0.5
 
 # Minimum Quote Asset difference to trigger a trade
 # This will be calculated as a percentage of the portfolio value

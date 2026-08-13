@@ -4,22 +4,20 @@ import * as path from 'path';
 import * as dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 
-// Load environment variables
 dotenv.config();
 
-// Get the directory of the current file (works on Windows and Unix)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Load settings from settings.txt
 function loadSettings() {
   const settingsPath = path.join(__dirname, 'settings.txt');
   const defaultSettings = {
-    HIGH: 100000,
-    LOW: 60000,
-    THRESHOLD_PERCENTAGE: 1.5,
+    HIGH: 137500,
+    LOW: 52500,
+    THRESHOLD_PERCENTAGE: 0.5,
     SYMBOL: 'BTC/USDC',
     DRY_RUN: true,
+    MIN_TRADE_SIZE: 10,
   };
 
   if (!fs.existsSync(settingsPath)) {
@@ -46,8 +44,7 @@ function loadSettings() {
   return settings;
 }
 
-// Initialize Kraken exchange with retry logic
-async function initializeKrakenWithRetry(maxRetries = 3) {
+async function initializeKrakenWithRetry() {
   const apiKey = process.env.KRAKEN_API_KEY;
   const apiSecret = process.env.KRAKEN_API_SECRET;
 
@@ -63,17 +60,14 @@ async function initializeKrakenWithRetry(maxRetries = 3) {
   });
 }
 
-// Helper for delay
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Calculate target USDC percentage based on price (linear interpolation)
 function calculateTargetAllocation(price, LOW, HIGH) {
-  if (price >= HIGH) return 1.0; // 100% USDC
-  if (price <= LOW) return 0.0; // 100% BTC (0% USDC)
+  if (price >= HIGH) return 1.0; // 100% Quote (USDC)
+  if (price <= LOW) return 0.0;  // 100% Base (BTC)
   return (price - LOW) / (HIGH - LOW);
 }
 
-// Fetch current balance with error handling
 async function fetchBalance(exchange, symbol, maxRetries = 3) {
   let lastError = null;
   const [base, quote] = symbol.split('/');
@@ -88,67 +82,29 @@ async function fetchBalance(exchange, symbol, maxRetries = 3) {
     } catch (error) {
       lastError = error;
       console.warn(`Fetch balance attempt ${attempt}/${maxRetries} failed: ${error.message}`);
-      if (attempt < maxRetries) {
-        await sleep(1000 * attempt);
-      }
+      if (attempt < maxRetries) await sleep(1000 * attempt);
     }
   }
 
   throw new Error(`Failed to fetch balance after ${maxRetries} attempts: ${lastError?.message}`);
 }
 
-// Fetch mid price (average of bid/ask) with error handling
-async function fetchMidPrice(exchange, symbol, maxRetries = 3) {
+async function fetchTicker(exchange, symbol, maxRetries = 3) {
   let lastError = null;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const ticker = await exchange.fetch_ticker(symbol);
-      return (ticker.bid + ticker.ask) / 2;
+      return await exchange.fetch_ticker(symbol);
     } catch (error) {
       lastError = error;
-      console.warn(`Fetch price attempt ${attempt}/${maxRetries} failed: ${error.message}`);
-      if (attempt < maxRetries) {
-        await sleep(1000 * attempt);
-      }
+      console.warn(`Fetch ticker attempt ${attempt}/${maxRetries} failed: ${error.message}`);
+      if (attempt < maxRetries) await sleep(1000 * attempt);
     }
   }
 
-  throw new Error(`Failed to fetch price after ${maxRetries} attempts: ${lastError?.message}`);
+  throw new Error(`Failed to fetch ticker after ${maxRetries} attempts: ${lastError?.message}`);
 }
 
-// Calculate volatility-based multiplier using 24h ATR (Average True Range)
-async function getVolatilityAdjustment(exchange, symbol) {
-  try {
-    // Fetch 24 hourly candles
-    const ohlcv = await exchange.fetch_ohlcv(symbol, '1h', undefined, 24);
-    if (ohlcv.length < 24) return 1.0;
-
-    // Calculate the percentage range (High - Low) / Open for each hour
-    const hourlyRanges = ohlcv.map(candle => (candle[2] - candle[3]) / candle[1]);
-    const avgHourlyRange = hourlyRanges.reduce((a, b) => a + b, 0) / hourlyRanges.length;
-
-    // Define a "normal" hourly volatility (e.g., 0.5% per hour)
-    const baselineVol = 0.005; 
-    
-    // If volatility is higher than baseline, we increase the threshold
-    // If lower, we decrease it (clamped between 0.5x and 2.0x)
-    const multiplier = avgHourlyRange / baselineVol;
-    return Math.max(0.5, Math.min(2.0, multiplier));
-  } catch (error) {
-    console.warn(`Could not calculate volatility, defaulting to 1.0: ${error.message}`);
-    return 1.0;
-  }
-}
-
-// Round amount for readability
-function roundTradeAmount(amount) {
-  if (amount >= 10) return Math.round(amount / 10) * 10;
-  if (amount >= 5) return Math.round(amount / 5) * 5;
-  return Math.round(amount);
-}
-
-// Log transaction to ledger file
 function logTransaction(log) {
   const logFile = path.join(__dirname, 'transaction_ledger.log');
   const statusStr = log.status === 'dryrun' ? '[DRY_RUN]' : log.status === 'skipped' ? '[SKIPPED]' : '[EXECUTED]';
@@ -157,7 +113,7 @@ function logTransaction(log) {
   if (log.status === 'skipped') {
     const reasonStr = log.reason ? ` | Reason: ${log.reason}` : '';
     logEntry = `${log.timestamp} | ${statusStr} | ${log.action} | Price: $${log.price.toFixed(2)}${reasonStr}\n`;
-  }  else {
+  } else {
     logEntry = `${log.timestamp} | ${statusStr} | ${log.action} | Price: $${log.price.toFixed(2)} | Amount: ${log.btcAmount} | Total: $${log.totalUSD.toFixed(2)}\n`;
   }
 
@@ -168,37 +124,20 @@ function logTransaction(log) {
   }
 }
 
-// Main execution
 async function main() {
   try {
     const settings = loadSettings();
     const [baseAsset, quoteAsset] = settings.SYMBOL.split('/');
-    console.log(`=== Linear Rebalancing Bot ===`);
-    console.log(`Settings: SYMBOL=${settings.SYMBOL}, HIGH=$${settings.HIGH}, LOW=$${settings.LOW}, THRESHOLD_PERCENTAGE=${settings.THRESHOLD_PERCENTAGE}%, DRY_RUN=${settings.DRY_RUN}\n`);
+    console.log(`=== Linear Rebalancing Bot (12h Execution) ===`);
+    console.log(`Settings: SYMBOL=${settings.SYMBOL}, HIGH=$${settings.HIGH}, LOW=$${settings.LOW}, THRESHOLD=${settings.THRESHOLD_PERCENTAGE}%, DRY_RUN=${settings.DRY_RUN}\n`);
 
-    // Initialize exchange
-    let exchange;
-    try {
-      exchange = await initializeKrakenWithRetry();
-      console.log('Connected to Kraken\n');
-    } catch (error) {
-      throw new Error(`Failed to initialize Kraken connection: ${error}`);
-    }
-
-        // Load market cache so exchange.market() works
+    const exchange = await initializeKrakenWithRetry();
     await exchange.loadMarkets();
 
-    // Fetch current data with retries
     const balance = await fetchBalance(exchange, settings.SYMBOL);
-    const currentPrice = await fetchMidPrice(exchange, settings.SYMBOL);
+    const ticker = await fetchTicker(exchange, settings.SYMBOL);
+    const currentPrice = (ticker.bid + ticker.ask) / 2;
 
-    // Apply Volatility Adaptor
-    const volMultiplier = await getVolatilityAdjustment(exchange, settings.SYMBOL);
-    const adjustedThresholdPercent = settings.THRESHOLD_PERCENTAGE * volMultiplier;
-    console.log(`Volatility Adjustment: ${volMultiplier.toFixed(2)}x`);
-    console.log(`Dynamic Threshold: ${adjustedThresholdPercent.toFixed(2)}%\n`);
-
-    // Initialize base log object with common values
     const logData = {
       timestamp: new Date().toLocaleString(),
       price: currentPrice,
@@ -209,147 +148,99 @@ async function main() {
     };
 
     const portfolioValueUSD = balance.base * currentPrice + balance.quote;
-    const midRangePrice = (settings.HIGH + settings.LOW) / 2;
-    const valueAtMidRange = balance.base * midRangePrice + balance.quote;
     console.log(`Portfolio Value: $${portfolioValueUSD.toFixed(2)}`);
-    console.log(`Value at mid-range price: $${valueAtMidRange.toFixed(2)} at $${midRangePrice} USD/BTC`);
-    console.log(`Current ${baseAsset} Balance: ${balance.base.toFixed(8)}`);
-    console.log(`Current ${quoteAsset} Balance: $${balance.quote.toFixed(2)}`);
-    console.log(`Current Price: $${currentPrice.toFixed(2)}\n`);
+    console.log(`Current ${baseAsset}: ${balance.base.toFixed(8)}`);
+    console.log(`Current ${quoteAsset}: $${balance.quote.toFixed(2)}`);
+    console.log(`Current Mid Price: $${currentPrice.toFixed(2)}\n`);
 
-    // Calculate target allocation based on current price
-    const initialBTCPercentage = balance.base * currentPrice / portfolioValueUSD;
+    const initialBTCPercentage = (balance.base * currentPrice) / portfolioValueUSD;
     const targetUSDCPercentage = calculateTargetAllocation(currentPrice, settings.LOW, settings.HIGH);
     const targetBTCPercentage = 1 - targetUSDCPercentage;
 
-    console.log(`Initial Allocation: ${(initialBTCPercentage * 100).toFixed(1)}% ${baseAsset}`);
+    console.log(`Current Allocation: ${(initialBTCPercentage * 100).toFixed(1)}% ${baseAsset}`);
     console.log(`Target Allocation:  ${(targetBTCPercentage * 100).toFixed(1)}% ${baseAsset}\n`);
 
-    // Calculate required rebalancing
     const targetUSDCValue = portfolioValueUSD * targetUSDCPercentage;
     const currentUSDCValue = balance.quote;
     const usdDifference = targetUSDCValue - currentUSDCValue;
 
-    console.log(`Current ${quoteAsset} Value: $${currentUSDCValue.toFixed(2)}`);
-    console.log(`Target ${quoteAsset} Value:  $${targetUSDCValue.toFixed(2)}`);
-    console.log(`USD Difference: $${usdDifference.toFixed(2)}`);
-
-    // Check if rebalancing is needed
-    const threshold = portfolioValueUSD * (adjustedThresholdPercent / 100);
+    // Check threshold
+    const threshold = portfolioValueUSD * (settings.THRESHOLD_PERCENTAGE / 100);
     if (Math.abs(usdDifference) < threshold) {
-      console.log(`\nDifference is below ${adjustedThresholdPercent.toFixed(2)}% threshold (${threshold.toFixed(2)}). No action needed.\n`);
+      console.log(`Difference $${Math.abs(usdDifference).toFixed(2)} is below threshold ($${threshold.toFixed(2)}). Skipping.\n`);
       logTransaction({
         ...logData,
-        reason: `Difference $${Math.abs(usdDifference).toFixed(2)} below dynamic threshold (${adjustedThresholdPercent.toFixed(2)}%)`,
+        reason: `Difference below ${settings.THRESHOLD_PERCENTAGE}% threshold`,
       });
       return;
     }
 
-    // Get market information and limits
-    let market;
-    try {
-      market = exchange.market(settings.SYMBOL);
-    } catch (error) {
-      throw new Error(`Failed to fetch market info for ${settings.SYMBOL}: ${error}`);
-    }
+    const market = exchange.market(settings.SYMBOL);
+    const minBTCAmount = market.limits.amount.min || 0.0001;
 
-    const minBTCAmount = market.limits.amount.min || 0.001;
-    console.log(`\nMinimum ${baseAsset} order size on Kraken: ${minBTCAmount} ${baseAsset}`);
-
-    // Determine trade type and amount
     let action;
-    let tradeAmountBTC;
-    let tradeAmountUSD;
+    let tradeAmountBTC = Math.abs(usdDifference) / currentPrice;
+    let tradeAmountUSD = Math.abs(usdDifference);
 
     if (usdDifference > 0) {
-      // Need more USDC: sell BTC
-      tradeAmountBTC = Math.abs(usdDifference) / currentPrice;
-      tradeAmountUSD = tradeAmountBTC * currentPrice;
       action = `SELL_${baseAsset}`;
     } else {
-      // Need more BTC: buy BTC (sell USDC)
-      tradeAmountBTC = Math.abs(usdDifference) / currentPrice;
-      tradeAmountUSD = Math.abs(usdDifference);
       action = `BUY_${baseAsset}`;
     }
 
-    console.log(`\nCalculated trade: ${action} ${tradeAmountBTC.toFixed(8)} ${baseAsset} (~$${tradeAmountUSD.toFixed(2)})`);
-
-    // Update log data for the calculated trade
-    logData.action = action;
-    logData.btcAmount = tradeAmountBTC.toFixed(8);
-    logData.totalUSD = tradeAmountUSD;
-
-    // Check minimum amount
     if (tradeAmountBTC < minBTCAmount) {
-      console.log(
-        `Trade amount ${tradeAmountBTC.toFixed(8)} ${baseAsset} is below minimum ${minBTCAmount}. No action taken.\n`
-      );
-      logTransaction({ ...logData, reason: `Amount below minimum (${minBTCAmount} ${baseAsset})` });
+      console.log(`Trade amount ${tradeAmountBTC.toFixed(8)} is below minimum size (${minBTCAmount}). Skipping.`);
+      logTransaction({ ...logData, reason: `Amount below exchange min (${minBTCAmount})` });
       return;
     }
 
-    const minTradeUSD = settings.MIN_TRADE_SIZE || 10;
-    if (tradeAmountUSD < minTradeUSD) {
-      console.log(`Trade amount $${tradeAmountUSD.toFixed(2)} is below MIN_TRADE_SIZE ($${minTradeUSD}). Skipping.`);
-      logTransaction({ ...logData, reason: `Amount below MIN_TRADE_SIZE ($${minTradeUSD})` });
+    if (tradeAmountUSD < settings.MIN_TRADE_SIZE) {
+      console.log(`Trade amount $${tradeAmountUSD.toFixed(2)} is below MIN_TRADE_SIZE ($${settings.MIN_TRADE_SIZE}). Skipping.`);
+      logTransaction({ ...logData, reason: `Amount below MIN_TRADE_SIZE` });
       return;
     }
-    
-    // Apply precision to avoid formatting errors
-    let precisionBTC;
-    try {
-      precisionBTC = exchange.amountToPrecision(settings.SYMBOL, tradeAmountBTC);
-    } catch (error) {
-      throw new Error(`Failed to apply precision: ${error}`);
-    }
 
-    // Update log with finalized precision and rounded values
+    const precisionBTC = exchange.amountToPrecision(settings.SYMBOL, tradeAmountBTC);
+    logData.action = action;
     logData.btcAmount = precisionBTC;
     logData.totalUSD = tradeAmountUSD;
 
     if (settings.DRY_RUN) {
-      console.log(`[DRY RUN] Would execute: ${action} ${precisionBTC} ${baseAsset} (~$${tradeAmountUSD})\n`);
+      console.log(`[DRY RUN] Would execute MAKER order: ${action} ${precisionBTC} ${baseAsset} (~$${tradeAmountUSD.toFixed(2)})\n`);
       logTransaction({ ...logData, status: 'dryrun' });
     } else {
-      console.log(`Executing live trade: ${action} ${precisionBTC} ${baseAsset} (~$${tradeAmountUSD})\n`);
+      console.log(`Executing Live MAKER Order: ${action} ${precisionBTC} ${baseAsset}...\n`);
+
+      // MAKER Execution Logic with postOnly = true
+      let rawLimitPrice;
+      if (action.startsWith('SELL')) {
+        rawLimitPrice = ticker.ask; // Post at ask to earn maker fee
+      } else {
+        rawLimitPrice = ticker.bid; // Post at bid to earn maker fee
+      }
+
+      const limitPrice = exchange.priceToPrecision(settings.SYMBOL, rawLimitPrice);
 
       try {
-        let orderId;
-        const ticker = await exchange.fetch_ticker(settings.SYMBOL);
-        
-        if (action.startsWith('SELL')) {
-          // Place limit sell slightly below current bid to ensure instant fill
-          const rawLimitPrice = ticker.bid * 0.999;
-          const limitPrice = exchange.priceToPrecision(settings.SYMBOL, rawLimitPrice);
-          const order = await exchange.createOrder(settings.SYMBOL, 'limit', 'sell', parseFloat(precisionBTC), parseFloat(limitPrice));
-          orderId = order.id;
-        } else {
-          // Place limit buy slightly above current ask to ensure instant fill
-          const rawLimitPrice = ticker.ask * 1.001;
-          const limitPrice = exchange.priceToPrecision(settings.SYMBOL, rawLimitPrice);
-          const order = await exchange.createOrder(settings.SYMBOL, 'limit', 'buy', parseFloat(precisionBTC), parseFloat(limitPrice));
-          orderId = order.id;
-        }
+        const order = await exchange.createOrder(
+          settings.SYMBOL,
+          'limit',
+          action.startsWith('SELL') ? 'sell' : 'buy',
+          parseFloat(precisionBTC),
+          parseFloat(limitPrice),
+          { postOnly: true } // Ensures order is posted as Maker
+        );
 
-        console.log(`Trade executed successfully! Order ID: ${orderId}\n`);
-
+        console.log(`Maker order placed successfully! Order ID: ${order.id}\n`);
         logTransaction({ ...logData, status: 'success' });
       } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        console.error(`Trade execution failed: ${errorMsg}\n`);
-
-        logTransaction({ ...logData, reason: `Execution error: ${errorMsg}` });
-
+        console.error(`Maker order failed/rejected (may have crossed market): ${error.message}`);
+        logTransaction({ ...logData, reason: `Maker execution error: ${error.message}` });
         throw error;
       }
     }
   } catch (error) {
-    if (error instanceof Error) {
-      console.error(`\n❌ Error: ${error.message}\n`);
-    } else {
-      console.error(`\n❌ Unknown error occurred\n`);
-    }
+    console.error(`\n❌ Execution Error: ${error.message}\n`);
     process.exit(1);
   }
 }
